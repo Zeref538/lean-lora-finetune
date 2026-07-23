@@ -297,33 +297,72 @@ than the original hypothesis — and it's a real negative result, arrived at
 by testing an idea and discarding it when the data didn't support it, not by
 picking whichever explanation sounded best.
 
-**Remaining, better-targeted next experiments** (not run here, but now
-correctly scoped by this ablation):
+**One candidate next experiment was training dosage — tested next (§6.2)
+rather than left as a suggestion.**
 
-- **Vary how much the target answer diverges from base-model-style
-  verbosity itself** — e.g. train on partially-shortened labels (say, keep
-  one explanatory sentence per step rather than none) rather than varying
-  formatting. This is the lever the ablation shows actually matters.
-- **Fewer epochs or lower learning rate** — reduce how strongly the model
-  commits to the terse style, since 2 full epochs to a loss plateau (§5) may
-  be over-fitting a stylistic pattern harder than necessary.
-- **An inference-time minimum reasoning-token floor** — a cheap mitigation
-  that doesn't require retraining at all.
+## 6.2 Ablation: does less training dosage trade back some accuracy?
+
+**Hypothesis tested:** v1 and v2 both trained 2 full epochs to a loss
+plateau (§5). Maybe that's over-fitting the terse style harder than
+necessary — 1 epoch might preserve more of the base model's reasoning depth
+while still cutting some tokens.
+
+**Design:** trained a third adapter (`lean-v3`) on the exact same data as
+v2 (structure-preserved), same LoRA config, but **1 epoch instead of 2** —
+isolating training dosage as the only variable.
+
+**Result, same 100-example held-out set:**
+
+| | Base | v1 (2 epochs, collapsed) | v2 (2 epochs, structured) | v3 (1 epoch, structured) |
+|---|---|---|---|---|
+| Accuracy | 69.0% | 51.0% | 50.0% | **45.0%** |
+| Mean output tokens | 299.4 | 93.8 | 89.7 | **86.4** |
+
+**This is the opposite of the hypothesis.** Less training didn't trade back
+accuracy for less compression — v3 is *worse on both axes* than v1/v2: lower
+accuracy (45% vs ~50%) *and* fewer tokens (86.4 vs ~90-94). If anything, 1
+epoch looks like a strictly worse operating point, not a gentler one.
+
+**What this suggests:** the model isn't gradually and smoothly trading
+accuracy for brevity as training progresses — a partially-trained (1 epoch)
+adapter seems to pick up the terse *style* about as fast as the fully
+trained one (tokens are already low at 1 epoch), but hasn't yet had the
+extra epoch's worth of gradient steps needed to *consolidate reliable
+arithmetic* under that new style. In other words: the format change happens
+fast; recovering reasoning reliability under the new format (to the extent
+2 epochs partially does) takes longer. This reframes the earlier "trade-off
+curve" framing — the data here doesn't support a smooth dial at all; it
+looks more like the style shift and the reasoning-quality recovery move on
+different timescales, and 1 epoch catches the model in a worse spot on both.
+
+This too is reported as found, not adjusted after the fact — the hypothesis
+was reasonable going in, and the result contradicts it, which is itself the
+finding.
 
 ## 8. Revised honest summary
 
 Lean is a working, end-to-end compression-distillation LoRA pipeline that
-reliably teaches a small model to generate ~70% fewer tokens per answer —
-confirmed across two eval sample sizes (n=15 and n=100) and two independent
-training runs (v1, v2) — at a real, confirmed accuracy cost (69%→~50% at
-n=100). Two hypotheses for the cause were tested in sequence and one was
-ruled out by evidence rather than assumed: it is **not** explained by the
-data-prep step deleting needed reasoning (labels were barely shortened), and
-it is **not** explained by the reasoning-line-joining format (the v1/v2
-ablation showed identical results despite that formatting difference). The
-best-supported explanation is that SFT on any terse-style GSM8K answer
-teaches the model to generalize "answer tersely" into "reason less" at
-inference time — a specific, testable instance of the known link between
-chain-of-thought length and accuracy on math reasoning tasks, now
-demonstrated with two independent fine-tunes converging on the same result
-rather than a single unverified before/after number.
+reliably teaches a small model to generate far fewer tokens per answer
+(consistently ~70-71% fewer across three independent fine-tunes), at a real,
+confirmed accuracy cost. Three hypotheses for the cause/shape of that cost
+were tested in sequence, and evidence — not intuition — decided each one:
+
+1. **Not explained by the data-prep step deleting needed reasoning** —
+   training labels were barely shortened from GSM8K's originals (§4, §6).
+2. **Not explained by reasoning-line-joining format** — v1 (collapsed) and
+   v2 (structure-preserved) landed statistically indistinguishable (§6.1).
+3. **Not a smooth, less-training-preserves-more-accuracy dial** — v3 (1
+   epoch) did *worse* on both accuracy and tokens than v1/v2 (2 epochs),
+   contradicting that hypothesis directly (§6.2).
+
+The best-supported remaining explanation is that SFT on any terse-style
+GSM8K answer teaches the model to generalize "answer tersely" into "reason
+less" at inference time, that this style shift happens quickly during
+training, and that recovering reliable arithmetic under the new style (what
+the extra epoch in v1/v2 appears to partially provide) is a separate,
+slower process than adopting the style itself. That is a more specific and
+more interesting claim than "fine-tuning worked" or "fine-tuning failed" —
+it's a small, reproducible research finding about *how* chain-of-thought
+compression interacts with training dynamics, built on four fine-tunes
+(base excluded) and two falsified hypotheses rather than one unverified
+number.
