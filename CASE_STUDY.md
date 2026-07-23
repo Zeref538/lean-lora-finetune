@@ -360,9 +360,90 @@ GSM8K answer teaches the model to generalize "answer tersely" into "reason
 less" at inference time, that this style shift happens quickly during
 training, and that recovering reliable arithmetic under the new style (what
 the extra epoch in v1/v2 appears to partially provide) is a separate,
-slower process than adopting the style itself. That is a more specific and
-more interesting claim than "fine-tuning worked" or "fine-tuning failed" —
-it's a small, reproducible research finding about *how* chain-of-thought
-compression interacts with training dynamics, built on four fine-tunes
-(base excluded) and two falsified hypotheses rather than one unverified
-number.
+slower process than adopting the style itself.
+
+## 9. v4 — self-distillation instead of gold-label compression
+
+v1-v3 all shared one thing: the training target was GSM8K's own gold-label
+style, uniformly ~52 words regardless of problem difficulty. §6-6.2
+diagnosed *why* that hurt accuracy — training toward a fixed-length terse
+target teaches the model to always answer briefly, including on harder
+problems that need more reasoning. v4 tests the fix that diagnosis implies:
+change what the model trains on, not just how it's trained.
+
+**Design:**
+1. **Generate the base model's own reasoning** on all 7,473 training
+   questions (batched greedy decoding on a free Kaggle T4 — see
+   `distill_generate.ipynb`).
+2. **Keep only verified-correct output** — 5,780 of 7,473 (77.3%) matched
+   the gold final answer. Self-distillation on the model's own correct
+   behavior only; never trained on its own mistakes. Length already varied
+   naturally with difficulty here: median 165 words, range 15-311 — nothing
+   like v1-v3's flat ~52-word target.
+3. **Trim boilerplate only, not reasoning.** Every generation had the same
+   two filler patterns: an intro paragraph ("To determine X, we need to
+   follow these steps:") and a closing restatement ("Thus, the answer is
+   \boxed{N}."). A rule-based trim (`data/build_v4.py`) cut both, replacing
+   the closing with a plain `#### N`, and left the actual derivation
+   (equations, intermediate results) completely untouched. Result: 26.5%
+   shorter, **0% rejection** — the trim never broke a correct answer,
+   because it never touched the math.
+4. Trained a fourth LoRA adapter (`lean-v4`) on this 5,780-example set, same
+   config as v1/v2 (LoRA r=16, 2 epochs).
+
+**Result, same 100-example held-out set:**
+
+| | Base | v1 | v2 | v3 | **v4 (self-distill)** |
+|---|---|---|---|---|---|
+| Accuracy | 69.0% | 51.0% | 50.0% | 45.0% | **64.0%** |
+| Mean output tokens | 299.4 | 93.8 | 89.7 | 86.4 | **248.4** |
+
+**This is the result the earlier diagnosis predicted.** Accuracy dropped
+only 5 points (69%→64%) instead of the 18-24 point drops v1-v3 all showed —
+training on the model's own verified-correct, difficulty-scaled reasoning
+preserves accuracy far better than compressing to a fixed terse template.
+The honest other half: token reduction is far more modest too — 17% vs.
+v1-v3's ~68-71%. That's not a shortcoming to explain away; it's the real
+shape of the trade-off. Most of the token cost in the base model's answers
+turns out to live in the *reasoning itself* — once you stop cutting
+reasoning (to protect accuracy), you naturally stop cutting most of the
+tokens too. v1-v3's large token savings came specifically from cutting the
+part that also cost accuracy.
+
+**What this means:** there isn't a free lunch where you keep 69% accuracy
+*and* get to 90 tokens — v1-v3 already showed what happens when you push for
+that (44-51% accuracy). v4 shows the other real point on the same frontier:
+protect accuracy, and the achievable compression is real but modest (~17%,
+from cutting only genuine boilerplate). Both are legitimate, honestly
+measured points on the same accuracy/efficiency curve — which one to pick
+depends on whether the application can tolerate a 5-point accuracy dip for
+20% savings, or a 20-24 point dip for 70% savings.
+
+## 10. Revised honest summary
+
+Lean is a working, end-to-end fine-tuning pipeline that produced four
+independent LoRA adapters, each testing a specific hypothesis about how to
+trade tokens for accuracy on GSM8K math reasoning, with two hypotheses
+falsified by evidence and one recipe (v4) that substantially improved the
+trade-off once the diagnosis pointed at the actual cause:
+
+1. **v1**: compress GSM8K's gold labels to a fixed terse template →
+   70% fewer tokens, 18-point accuracy cost.
+2. **v2**: isolate formatting as a variable → **falsified**, formatting
+   doesn't matter, ruling out "line-collapsing caused the drop."
+3. **v3**: isolate training dosage as a variable → **falsified in the
+   opposite direction**, less training made both axes worse, ruling out a
+   smooth accuracy/brevity dial.
+4. **v4**: change the training *target* itself — self-distill on the base
+   model's own verified-correct, difficulty-scaled reasoning, trimming only
+   genuine boilerplate → 64% accuracy (vs. 69% base) at 248 tokens (vs. 299
+   base), by far the best accuracy-preserving result of the four.
+
+The throughline: the earlier diagnosis (§6-6.2) that SFT on a fixed-length
+terse target teaches "reason less" wasn't just an explanation after the
+fact — it made a testable prediction (train on adaptive-length,
+verified-correct reasoning instead, and accuracy should recover) that v4
+then confirmed. That is the actual deliverable here: not a single
+efficiency number, but a diagnosed, predictive account of *why* naive
+compression-distillation costs accuracy, and a concrete recipe that
+recovers most of it.
