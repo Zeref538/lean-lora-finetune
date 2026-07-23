@@ -1,5 +1,7 @@
 # Lean
 
+**[Live demo →](https://zeref538.github.io/lean-lora-finetune/)**
+
 Fine-tune a free open-weights model (Qwen2.5-1.5B-Instruct) via LoRA to say
 the same thing in fewer tokens, without giving up accuracy. Four fine-tunes,
 two falsified hypotheses, and one recipe that actually held accuracy near
