@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 runs/*/adapter/*.safetensors
 runs/*/checkpoint-*/
+eval_bundle/
+eval_bundle.zip
