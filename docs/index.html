@@ -64,8 +64,7 @@
   .font-mono { font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace; }
   .tnum { font-variant-numeric: tabular-nums; }
 
-  .wrap { max-width: 880px; margin: 0 auto; padding: 0 24px; }
-  .wrap.wide { max-width: 1080px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
   section { padding: 64px 0; }
   section + section { border-top: 1px solid var(--line); }
 
@@ -85,18 +84,6 @@
     background: var(--surface);
     padding: 40px 40px 32px;
     box-shadow: var(--shadow);
-  }
-  .dispatch::before {
-    content: "FIELD REPORT NO. 4";
-    position: absolute;
-    top: -11px;
-    left: 40px;
-    background: var(--bg);
-    padding: 0 10px;
-    font-family: ui-monospace, monospace;
-    font-size: 11px;
-    letter-spacing: .14em;
-    color: var(--ink-muted);
   }
   .dispatch-top {
     display: flex;
@@ -195,7 +182,15 @@
     padding-top: 3px;
   }
   .log-title { font-weight: 600; font-size: 15.5px; margin: 0 0 6px; }
-  .log-body { color: var(--ink-muted); font-size: 14.5px; margin: 0; max-width: 66ch; }
+  .log-body { color: var(--ink-muted); font-size: 14.5px; margin: 0 0 10px; max-width: 66ch; }
+  .log-lesson {
+    font-size: 14px;
+    max-width: 66ch;
+    margin: 0;
+    padding-left: 14px;
+    border-left: 2px solid var(--accent);
+  }
+  .log-lesson b { color: var(--ink); }
   .verdict {
     display: inline-flex;
     align-items: center;
@@ -238,13 +233,13 @@
 
   .slips {
     display: flex;
-    gap: 32px;
+    gap: 28px;
     overflow-x: auto;
     padding-bottom: 4px;
   }
   .slip {
-    flex: 1 1 260px;
-    min-width: 260px;
+    flex: 1 1 0;
+    min-width: 230px;
     padding-left: 20px;
     border-left: 1px solid var(--line);
     display: flex;
@@ -334,7 +329,7 @@
 </section>
 
 <section id="transcript-section">
-  <div class="wrap wide">
+  <div class="wrap">
     <span class="eyebrow">Read the actual output</span>
     <h2>Four real questions. Four models. No cherry-picking.</h2>
     <p class="lede">Pre-recorded generations, not live model calls. Start here: the base model actually gets the robe question <strong>wrong</strong> — all three fine-tunes get it right, in a fraction of the words. Flip through the other questions and the trade-off shows up too, including a genuine fine-tune failure on the duck-egg question.</p>
@@ -358,6 +353,7 @@
         <div>
           <p class="log-title">v1 — collapse every reasoning line into one, train 2 epochs</p>
           <p class="log-body">Mechanical compressor strips GSM8K's inline calculator annotations and joins all steps into a single semicolon-separated line. Result: 51.0% accuracy, 93.8 tokens — tokens down ~70%, accuracy down 18 points from base.</p>
+          <p class="log-lesson"><b>Lesson:</b> the training labels were barely shortened from GSM8K's originals — yet the model's own generations got far more compressed than the labels ever were. Compressing the data doesn't just teach a format; it teaches the model to think less, and that effect can outrun the input.</p>
         </div>
       </div>
       <div class="log-entry">
@@ -366,6 +362,7 @@
           <p class="log-title">Hypothesis: the line-collapsing format itself caused the drop</p>
           <p class="log-body">v2 keeps GSM8K's original multi-line structure — same words, same 51.7-word average, only the formatting changed. Result: 50.0% accuracy, 89.7 tokens — statistically identical to v1.</p>
           <span class="verdict falsified">Falsified</span>
+          <p class="log-lesson"><b>Lesson:</b> when changing an obvious surface variable produces no difference, the real cause is probably upstream of it. Formatting felt like the likely culprit; it wasn't — worth ruling out before chasing subtler explanations.</p>
         </div>
       </div>
       <div class="log-entry">
@@ -374,6 +371,7 @@
           <p class="log-title">Hypothesis: less training preserves more accuracy</p>
           <p class="log-body">v3 trains on the same data as v2 for 1 epoch instead of 2, expecting a gentler trade-off. Result: 45.0% accuracy, 86.4 tokens — worse on <em>both</em> axes. Style adoption and reasoning-reliability recovery appear to move on different timescales during fine-tuning.</p>
           <span class="verdict falsified">Falsified</span>
+          <p class="log-lesson"><b>Lesson:</b> the trade-off isn't a smooth dial you can back off gently. The terse style seems to be adopted quickly, while reliable arithmetic under that new style takes longer to recover — cutting training short catches the model in the worst of both.</p>
         </div>
       </div>
     </div>
