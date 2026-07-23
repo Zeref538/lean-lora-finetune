@@ -1,0 +1,18 @@
+# One experiment = one config, per TOKEN_EFFICIENCY_PLAN.md discipline.
+base_model: unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit
+seed: 0
+
+lora:
+  r: 16
+  alpha: 16
+  dropout: 0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+train:
+  data_path: data/pairs.jsonl   # produced by data/compress.py
+  output_dir: runs/lean-v1
+  epochs: 2
+  batch_size: 2
+  grad_accum: 8
+  lr: 2.0e-4
+  max_seq_len: 1024

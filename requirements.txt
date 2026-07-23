@@ -1,0 +1,6 @@
+unsloth
+trl
+peft
+datasets
+transformers
+torch
