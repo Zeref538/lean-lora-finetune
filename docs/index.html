@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lean — a fine-tune that cut tokens 70%, and what it cost</title>
+<style>
+  :root {
+    --bg: #f0ece0;
+    --surface: #e6dfc9;
+    --surface-2: #ddd4b8;
+    --ink: #1e2a2e;
+    --ink-muted: #5b665f;
+    --line: rgba(30, 42, 46, .18);
+    --accent: #b4402a;
+    --accent-ink: #fbf6ec;
+    --good: #3f6f5c;
+    --warn: #a8791e;
+    --shadow: 0 1px 0 rgba(30,42,46,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181a;
+      --surface: #1b2123;
+      --surface-2: #232a2c;
+      --ink: #ede6d6;
+      --ink-muted: #9ba39c;
+      --line: rgba(237, 230, 214, .16);
+      --accent: #e2735a;
+      --accent-ink: #1b1210;
+      --good: #6fa98e;
+      --warn: #d2a23d;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181a; --surface: #1b2123; --surface-2: #232a2c;
+    --ink: #ede6d6; --ink-muted: #9ba39c; --line: rgba(237, 230, 214, .16);
+    --accent: #e2735a; --accent-ink: #1b1210; --good: #6fa98e; --warn: #d2a23d;
+    --shadow: none;
+  }
+  :root[data-theme="light"] {
+    --bg: #f0ece0; --surface: #e6dfc9; --surface-2: #ddd4b8;
+    --ink: #1e2a2e; --ink-muted: #5b665f; --line: rgba(30, 42, 46, .18);
+    --accent: #b4402a; --accent-ink: #fbf6ec; --good: #3f6f5c; --warn: #a8791e;
+    --shadow: 0 1px 0 rgba(30,42,46,.06);
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .font-display { font-family: Georgia, "Iowan Old Style", "Times New Roman", serif; }
+  .font-mono { font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace; }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+  .wrap.wide { max-width: 1080px; }
+  section { padding: 64px 0; }
+  section + section { border-top: 1px solid var(--line); }
+
+  .eyebrow {
+    font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+
+  /* ---- Hero: telegram dispatch ---- */
+  .hero { padding-top: 56px; }
+  .dispatch {
+    position: relative;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    padding: 40px 40px 32px;
+    box-shadow: var(--shadow);
+  }
+  .dispatch::before {
+    content: "FIELD REPORT NO. 4";
+    position: absolute;
+    top: -11px;
+    left: 40px;
+    background: var(--bg);
+    padding: 0 10px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: .14em;
+    color: var(--ink-muted);
+  }
+  .dispatch-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    font-weight: 400;
+    font-size: clamp(28px, 4.4vw, 42px);
+    line-height: 1.16;
+    letter-spacing: -.01em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  h1 em { font-style: italic; color: var(--accent); }
+  .dek {
+    font-size: 17px;
+    color: var(--ink-muted);
+    max-width: 62ch;
+    margin: 0;
+  }
+  .dek strong { color: var(--ink); font-weight: 600; }
+
+  .stat-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-top: 28px;
+  }
+  .stat {
+    background: var(--surface);
+    padding: 16px 18px;
+  }
+  .stat .n {
+    font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 26px;
+    font-weight: 600;
+    display: block;
+  }
+  .stat .n.accent { color: var(--accent); }
+  .stat .l {
+    font-size: 12px;
+    color: var(--ink-muted);
+    letter-spacing: .02em;
+    margin-top: 2px;
+    display: block;
+  }
+
+  /* ---- section headings ---- */
+  h2 {
+    font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    font-weight: 400;
+    font-size: 26px;
+    margin: 8px 0 8px;
+    text-wrap: balance;
+  }
+  .lede { color: var(--ink-muted); max-width: 68ch; margin: 0 0 32px; font-size: 15.5px; }
+
+  /* ---- chart ---- */
+  .chart-card {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    padding: 28px 28px 20px;
+    overflow-x: auto;
+  }
+  svg text { font-family: ui-monospace, monospace; }
+  .axis-line { stroke: var(--line); stroke-width: 1; }
+  .grid-line { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
+  .trend-line { stroke: var(--accent); stroke-width: 2; fill: none; opacity: .55; }
+  .pt { stroke: var(--bg); stroke-width: 2; }
+  .pt-label { font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .pt-sub { font-size: 11px; fill: var(--ink-muted); }
+  .axis-label { font-size: 11px; fill: var(--ink-muted); letter-spacing: .04em; text-transform: uppercase; }
+  .chart-caption { font-size: 13px; color: var(--ink-muted); margin-top: 14px; }
+  .legend-row { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 4px; font-size: 12.5px; color: var(--ink-muted); }
+  .legend-row .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+
+  /* ---- log / hypothesis sequence ---- */
+  .log { display: flex; flex-direction: column; gap: 0; }
+  .log-entry {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 18px;
+    padding: 22px 0;
+    border-top: 1px solid var(--line);
+  }
+  .log-entry:first-child { border-top: none; }
+  .log-num {
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    color: var(--ink-muted);
+    padding-top: 3px;
+  }
+  .log-title { font-weight: 600; font-size: 15.5px; margin: 0 0 6px; }
+  .log-body { color: var(--ink-muted); font-size: 14.5px; margin: 0; max-width: 66ch; }
+  .verdict {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    margin-top: 10px;
+    border: 1px solid var(--line);
+  }
+  .verdict.falsified { color: var(--accent); border-color: var(--accent); }
+
+  /* ---- transcript comparison ---- */
+  .qtabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 22px; }
+  .qtab {
+    font-family: ui-monospace, monospace;
+    font-size: 12.5px;
+    padding: 8px 14px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink-muted);
+    cursor: pointer;
+  }
+  .qtab:hover { color: var(--ink); }
+  .qtab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .qtab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .question-box {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    padding: 16px 20px;
+    font-size: 15px;
+    margin-bottom: 18px;
+  }
+  .question-box .eyebrow { display: block; margin-bottom: 6px; }
+
+  .slips { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+  .slip {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    padding: 22px 24px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .slip-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .slip-name { font-family: ui-monospace, monospace; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-muted); }
+  .slip-mark {
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 9px;
+  }
+  .slip-mark.ok { color: var(--good); border: 1px solid var(--good); }
+  .slip-mark.no { color: var(--accent); border: 1px solid var(--accent); }
+  .slip-body {
+    font-family: ui-monospace, monospace;
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: var(--ink);
+    white-space: pre-wrap;
+    min-height: 320px;
+    max-height: 440px;
+    overflow-y: auto;
+  }
+  .slip-foot { font-size: 12.5px; color: var(--ink-muted); font-family: ui-monospace, monospace; border-top: 1px dashed var(--line); padding-top: 10px; }
+
+  footer { padding: 40px 0 64px; }
+  footer .wrap { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  footer a { color: var(--ink); }
+  footer .fine { font-size: 13px; color: var(--ink-muted); }
+  a.repo-link {
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    border: 1px solid var(--line);
+    padding: 8px 14px;
+    text-decoration: none;
+    color: var(--ink);
+  }
+  a.repo-link:hover { border-color: var(--accent); color: var(--accent); }
+
+  @media (max-width: 600px) {
+    section { padding: 44px 0; }
+    .dispatch { padding: 28px 20px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap hero">
+  <div class="dispatch">
+    <div class="dispatch-top">
+      <span class="eyebrow">Compression-distillation · LoRA fine-tune · Qwen2.5-1.5B</span>
+      <span class="eyebrow font-mono">n=100, held-out</span>
+    </div>
+    <h1>Cut the tokens <em>70%</em>. Cost the accuracy <em>18 points</em>.<br>Two hypotheses tested. Both wrong.</h1>
+    <p class="dek">Fine-tuned a small open model to answer math word problems in fewer words. It worked — <strong>almost too well</strong>. What actually caused the trade-off took three separate training runs and two discarded theories to pin down.</p>
+    <div class="stat-strip">
+      <div class="stat"><span class="n tnum accent">69.0 → 51.0%</span><span class="l">accuracy, base → best fine-tune</span></div>
+      <div class="stat"><span class="n tnum">299 → 90</span><span class="l">mean output tokens</span></div>
+      <div class="stat"><span class="n tnum">3</span><span class="l">independent fine-tunes run</span></div>
+      <div class="stat"><span class="n tnum">2</span><span class="l">hypotheses falsified by evidence</span></div>
+    </div>
+  </div>
+</div>
+
+<section id="chart-section">
+  <div class="wrap">
+    <span class="eyebrow">The trade-off</span>
+    <h2>Every run bought brevity. None kept the accuracy.</h2>
+    <p class="lede">Each point is one fine-tune, evaluated on the same 100 held-out GSM8K test questions the model never trained on. The line follows the order the runs happened in — not a smooth dial, as it turns out.</p>
+    <div class="chart-card">
+      <svg id="chart" viewBox="0 0 760 380" width="100%" style="max-width:760px; display:block; margin:0 auto;"></svg>
+      <div class="legend-row">
+        <span><span class="sw" style="background:var(--ink-muted)"></span>base model — untouched</span>
+        <span><span class="sw" style="background:var(--accent)"></span>fine-tuned adapters — v1, v2, v3 in run order</span>
+      </div>
+      <p class="chart-caption">v3 (1 epoch) sits below and left of v1/v2 (2 epochs each) — worse on <em>both</em> axes, not a gentler trade-off.</p>
+    </div>
+  </div>
+</section>
+
+<section id="transcript-section">
+  <div class="wrap wide">
+    <span class="eyebrow">Read the actual output</span>
+    <h2>Four real questions. Four models. No cherry-picking.</h2>
+    <p class="lede">Pre-recorded generations, not live model calls. Start here: the base model actually gets the robe question <strong>wrong</strong> — all three fine-tunes get it right, in a fraction of the words. Flip through the other questions and the trade-off shows up too, including a genuine fine-tune failure on the duck-egg question.</p>
+    <div class="qtabs" id="qtabs"></div>
+    <div class="question-box">
+      <span class="eyebrow">Question</span>
+      <div id="qtext"></div>
+    </div>
+    <div class="slips" id="slips"></div>
+  </div>
+</section>
+
+<section id="log-section">
+  <div class="wrap">
+    <span class="eyebrow">Lab log</span>
+    <h2>Three runs, in the order they actually happened</h2>
+    <p class="lede">Each entry is a hypothesis proposed before the run, and the result that either supported or killed it.</p>
+    <div class="log">
+      <div class="log-entry">
+        <div class="log-num tnum">01</div>
+        <div>
+          <p class="log-title">v1 — collapse every reasoning line into one, train 2 epochs</p>
+          <p class="log-body">Mechanical compressor strips GSM8K's inline calculator annotations and joins all steps into a single semicolon-separated line. Result: 51.0% accuracy, 93.8 tokens — tokens down ~70%, accuracy down 18 points from base.</p>
+        </div>
+      </div>
+      <div class="log-entry">
+        <div class="log-num tnum">02</div>
+        <div>
+          <p class="log-title">Hypothesis: the line-collapsing format itself caused the drop</p>
+          <p class="log-body">v2 keeps GSM8K's original multi-line structure — same words, same 51.7-word average, only the formatting changed. Result: 50.0% accuracy, 89.7 tokens — statistically identical to v1.</p>
+          <span class="verdict falsified">Falsified</span>
+        </div>
+      </div>
+      <div class="log-entry">
+        <div class="log-num tnum">03</div>
+        <div>
+          <p class="log-title">Hypothesis: less training preserves more accuracy</p>
+          <p class="log-body">v3 trains on the same data as v2 for 1 epoch instead of 2, expecting a gentler trade-off. Result: 45.0% accuracy, 86.4 tokens — worse on <em>both</em> axes. Style adoption and reasoning-reliability recovery appear to move on different timescales during fine-tuning.</p>
+          <span class="verdict falsified">Falsified</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span class="fine">Qwen2.5-1.5B-Instruct · LoRA r=16 · Unsloth · trained free on Kaggle T4</span>
+    <a class="repo-link" href="https://github.com/Zeref538/lean-lora-finetune" target="_blank" rel="noopener">github.com/Zeref538/lean-lora-finetune →</a>
+  </div>
+</footer>
+
+<script>
+(function () {
+  // ---------- chart ----------
+  var runs = [
+    { name: "base",  tokens: 299.4, acc: 69.0, kind: "base" },
+    { name: "v1",    tokens: 93.8,  acc: 51.0, kind: "ft" },
+    { name: "v2",    tokens: 89.7,  acc: 50.0, kind: "ft" },
+    { name: "v3",    tokens: 86.4,  acc: 45.0, kind: "ft" }
+  ];
+
+  var svg = document.getElementById("chart");
+  var W = 760, H = 380;
+  var padL = 56, padR = 40, padT = 24, padB = 48;
+  var plotW = W - padL - padR, plotH = H - padT - padB;
+
+  var tMin = 60, tMax = 320;   // tokens axis (inverted: fewer tokens = further right, "efficiency" reads left-to-right as improvement)
+  var aMin = 30, aMax = 80;    // accuracy axis
+
+  function x(tokens) { return padL + ((tMax - tokens) / (tMax - tMin)) * plotW; }
+  function y(acc) { return padT + (1 - (acc - aMin) / (aMax - aMin)) * plotH; }
+
+  var ns = "http://www.w3.org/2000/svg";
+  function el(tag, attrs) {
+    var e = document.createElementNS(ns, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  // gridlines (accuracy)
+  [30, 40, 50, 60, 70, 80].forEach(function (v) {
+    svg.appendChild(el("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), class: "grid-line" }));
+    var t = el("text", { x: padL - 10, y: y(v) + 4, class: "pt-sub", "text-anchor": "end" });
+    t.textContent = v + "%";
+    svg.appendChild(t);
+  });
+  // gridlines (tokens)
+  [100, 200, 300].forEach(function (v) {
+    var t = el("text", { x: x(v), y: H - padB + 20, class: "axis-label", "text-anchor": "middle" });
+    t.textContent = v;
+    svg.appendChild(t);
+  });
+
+  svg.appendChild(el("line", { x1: padL, x2: W - padR, y1: H - padB, y2: H - padB, class: "axis-line" }));
+  svg.appendChild(el("line", { x1: padL, x2: padL, y1: padT, y2: H - padB, class: "axis-line" }));
+
+  var xlab = el("text", { x: (padL + W - padR) / 2, y: H - 6, class: "axis-label", "text-anchor": "middle" });
+  xlab.textContent = "mean output tokens (fewer →)";
+  svg.appendChild(xlab);
+
+  var ylab = el("text", { x: 16, y: (padT + H - padB) / 2, class: "axis-label", "text-anchor": "middle" });
+  ylab.setAttribute("transform", "rotate(-90 16 " + ((padT + H - padB) / 2) + ")");
+  ylab.textContent = "accuracy";
+  svg.appendChild(ylab);
+
+  // trend line through ft runs in run order (v1 -> v2 -> v3)
+  var ftRuns = runs.filter(function (r) { return r.kind === "ft"; });
+  var path = "M " + ftRuns.map(function (r) { return x(r.tokens) + " " + y(r.acc); }).join(" L ");
+  svg.appendChild(el("path", { d: path, class: "trend-line" }));
+
+  // draw all four point markers at their true positions
+  runs.forEach(function (r) {
+    var cx = x(r.tokens), cy = y(r.acc);
+    var color = r.kind === "base" ? "var(--ink-muted)" : "var(--accent)";
+    svg.appendChild(el("circle", { cx: cx, cy: cy, r: 5.5, fill: color, class: "pt" }));
+  });
+
+  // base: plenty of clear space, label directly above
+  (function () {
+    var b = runs[0], cx = x(b.tokens), cy = y(b.acc);
+    var label = el("text", { x: cx, y: cy - 16, class: "pt-label", "text-anchor": "middle" });
+    label.textContent = "base";
+    svg.appendChild(label);
+    var sub = el("text", { x: cx, y: cy - 4, class: "pt-sub tnum", "text-anchor": "middle" });
+    sub.textContent = b.acc.toFixed(0) + "% / " + b.tokens.toFixed(0) + "t";
+    svg.appendChild(sub);
+  })();
+
+  // v1 and v2 sit within ~12px of each other on this scale — that IS the
+  // finding (statistically identical). Rather than fight the overlap, one
+  // shared label with a leader line to each dot makes the point visually.
+  (function () {
+    var v1 = runs[1], v2 = runs[2];
+    var cx = (x(v1.tokens) + x(v2.tokens)) / 2;
+    var cy = (y(v1.acc) + y(v2.acc)) / 2;
+    var labelY = cy - 58;
+    svg.appendChild(el("line", { x1: cx, y1: labelY + 10, x2: x(v1.tokens), y2: y(v1.acc), class: "grid-line" }));
+    svg.appendChild(el("line", { x1: cx, y1: labelY + 10, x2: x(v2.tokens), y2: y(v2.acc), class: "grid-line" }));
+    var label = el("text", { x: cx, y: labelY - 12, class: "pt-label", "text-anchor": "middle" });
+    label.textContent = "v1 & v2";
+    svg.appendChild(label);
+    var sub1 = el("text", { x: cx, y: labelY, class: "pt-sub tnum", "text-anchor": "middle" });
+    sub1.textContent = "50–51% / 90–94t";
+    svg.appendChild(sub1);
+    var sub2 = el("text", { x: cx, y: labelY + 12, class: "pt-sub", "text-anchor": "middle" });
+    sub2.textContent = "statistically identical";
+    svg.appendChild(sub2);
+  })();
+
+  // v3: clear space below-right
+  (function () {
+    var v3 = runs[3], cx = x(v3.tokens), cy = y(v3.acc);
+    var label = el("text", { x: cx, y: cy + 24, class: "pt-label", "text-anchor": "middle" });
+    label.textContent = "v3";
+    svg.appendChild(label);
+    var sub = el("text", { x: cx, y: cy + 36, class: "pt-sub tnum", "text-anchor": "middle" });
+    sub.textContent = v3.acc.toFixed(0) + "% / " + v3.tokens.toFixed(0) + "t";
+    svg.appendChild(sub);
+  })();
+
+  // ---------- transcript viewer ----------
+  var DATA = {"base": [{"question": "Janet\u2019s ducks lay 16 eggs per day. She eats three for breakfast every morning and bakes muffins for her friends every day with four. She sells the remainder at the farmers' market daily for $2 per fresh duck egg. How much in dollars does she make every day at the farmers' market?", "answer": " To determine how much Janet makes every day at the farmers' market, we need to follow these steps:\n\n1. Calculate the total number of eggs laid by the ducks each day.\n2. Determine how many eggs are eaten for breakfast.\n3. Subtract the eggs eaten for breakfast from the total eggs to find out how many eggs are left.\n4. Calculate the revenue from selling the remaining eggs.\n\nFirst, let's calculate the total number of eggs laid by the ducks each day:\n\\[ \\text{Total eggs} = 16 \\text{ eggs/day} \\]\n\nNext, we know that Janet eats 3 eggs for breakfast each day:\n\\[ \\text{Eggs eaten for breakfast} = 3 \\text{ eggs/day} \\]\nSo, the number of eggs left after breakfast is:\n\\[ \\text{Remaining eggs} = 16 - 3 = 13 \\text{ eggs/day} \\]\n\nJanet uses 4 eggs to bake muffins for her friends each day:\n\\[ \\text{Eggs used for muffins} = 4 \\text{ eggs/day} \\]\nSo, the number of eggs left after baking muffins is:\n\\[ \\text{Remaining eggs after muffins} = 13 - 4 = 9 \\text{ eggs/day} \\]\n\nEach of these remaining eggs is sold for $2 at the farmers' market:\n\\[ \\text{Revenue from selling eggs} = 9 \\text{ eggs/day} \\times \\$2/\\text{egg} = \\$18/\\text{day} \\]\n\nTherefore, the amount Janet makes every day at the farmers' market is:\n\\[ \\boxed{18} \\]", "tokens": 348}, {"question": "A robe takes 2 bolts of blue fiber and half that much white fiber.  How many bolts in total does it take?", "answer": " To determine the total number of bolts of fiber needed for a robe, we need to calculate the amount of each type of fiber required and then sum them up.\n\nFirst, let's identify how much white fiber is needed. The problem states that the robe requires half as much white fiber as blue fiber. Since one bolt of blue fiber is equivalent to 1 bolt, half of this would be:\n\\[\n\\frac{1}{2} \\text{ bolt}\n\\]\n\nNext, we know that the robe needs 2 bolts of blue fiber. Therefore, the total amount of fiber needed is the sum of the blue fiber and the white fiber:\n\\[\n2 \\text{ bolts (blue)} + \\frac{1}{2} \\text{ bolt (white)}\n\\]\n\nTo add these together, we convert the whole number into a fraction with the same denominator as \\(\\frac{1}{2}\\):\n\\[\n2 = \\frac{4}{2}\n\\]\n\nNow we can add the fractions:\n\\[\n\\frac{4}{2} + \\frac{1}{2} = \\frac{5}{2}\n\\]\n\nThus, the total number of bolts of fiber needed is:\n\\[\n\\boxed{\\frac{5}{2}}\n\\]", "tokens": 257}, {"question": "Josh decides to try flipping a house.  He buys a house for $80,000 and then puts in $50,000 in repairs.  This increased the value of the house by 150%.  How much profit did he make?", "answer": " To determine the profit that Josh made from flipping the house, we need to follow these steps:\n\n1. **Calculate the new value of the house after repairs:**\n   The original price of the house was $80,000. After making repairs worth $50,000, the new value of the house is:\n   \\[\n   80,000 + 50,000 = 130,000\n   \\]\n\n2. **Determine the increase in value due to the renovation:**\n   The problem states that the value of the house increased by 150% after the renovations. Therefore, the additional value added by the renovations is:\n   \\[\n   130,000 \\times 1.5 = 195,000\n   \\]\n   However, this calculation seems incorrect because it exceeds the initial value of the house. Let's re-evaluate the problem statement.\n\n3. **Re-evaluate the problem statement:**\n   The correct interpretation should be that the house's value increased by 150% based on its original value before any renovations were made. So, the increase in value is:\n   \\[\n   80,000 \\times 1.5 = 120,000\n   \\]\n   Adding this to the original value gives us the total value of the house after repairs:\n   \\[\n   80,000 + 120,000 = 200,000\n   \\]\n\n4. **Calculate the profit:**\n   Profit is calculated as the selling price minus the cost. Here, the selling price is $200,000 and the cost (original purchase plus repairs) is:\n   \\[\n   80,000 + 50,000 = 130,000\n   \\]\n   Therefore, the profit is:\n   \\[\n   200,000 - 130,000 = 70,000\n   \\]\n\nThe profit that Josh made is \\(\\boxed{70000}\\).", "tokens": 469}, {"question": "James decides to run 3 sprints 3 times a week.  He runs 60 meters each sprint.  How many total meters does he run a week?", "answer": " To determine the total number of meters James runs in a week, we need to follow these steps:\n\n1. Calculate the distance James runs in one complete set of three sprints.\n2. Multiply that distance by the number of sets of three sprints he runs per week.\n\nFirst, let's find out how far James runs in one complete set of three sprints:\n\\[ \\text{Distance for one set} = 3 \\text{ sprints} \\times 60 \\text{ meters/sprint} = 180 \\text{ meters} \\]\n\nNext, since James runs this set of three sprints three times a week, we multiply the distance of one set by 3:\n\\[ \\text{Total distance per week} = 180 \\text{ meters/set} \\times 3 \\text{ sets/week} = 540 \\text{ meters/week} \\]\n\nSo, the total number of meters James runs in a week is:\n\\[ \\boxed{540} \\]", "tokens": 213}], "v1": [{"question": "Janet\u2019s ducks lay 16 eggs per day. She eats three for breakfast every morning and bakes muffins for her friends every day with four. She sells the remainder at the farmers' market daily for $2 per fresh duck egg. How much in dollars does she make every day at the farmers' market?", "answer": "Every day, Janet gets 16 x 1 = 16 eggs from the ducks.; She eats 3 eggs for breakfast each day, so there are 16 - 3 = 13 eggs left.; She uses 4 of these eggs to bake muffins for her friends, leaving her with 13 - 4 = 9 eggs.; On sale, Janet sells each egg for $2, so she makes 9 x 2 = $18 on each sale.; #### 18", "tokens": 107}, {"question": "A robe takes 2 bolts of blue fiber and half that much white fiber.  How many bolts in total does it take?", "answer": "The number of white bolts is 1/2*2=1; The total number of bolts used to make the robe is 2+1=3; #### 3", "tokens": 37}, {"question": "Josh decides to try flipping a house.  He buys a house for $80,000 and then puts in $50,000 in repairs.  This increased the value of the house by 150%.  How much profit did he make?", "answer": "The house is now worth 80,000+50,000=$130,000; That means it's gone up in value by 130,000-80,000=$50,000; So that means he made a profit of 50,000*.15=$7,500; #### 7500", "tokens": 92}, {"question": "James decides to run 3 sprints 3 times a week.  He runs 60 meters each sprint.  How many total meters does he run a week?", "answer": "He runs 60*3=180 meters per day; So he runs 180*3=540 meters a week; #### 540", "tokens": 38}], "v2": [{"question": "Janet\u2019s ducks lay 16 eggs per day. She eats three for breakfast every morning and bakes muffins for her friends every day with four. She sells the remainder at the farmers' market daily for $2 per fresh duck egg. How much in dollars does she make every day at the farmers' market?", "answer": "First find how many eggs Janet cooks for her friends: 3 eggs/day * 4 days = 12 eggs\nThen subtract that number from the total number of eggs to find how many are left: 16 eggs - 12 eggs = 4 eggs\nThen multiply the number of eggs by the price per egg to find her earnings: 4 eggs/egg * $2/egg = $8\n#### 8", "tokens": 90}, {"question": "A robe takes 2 bolts of blue fiber and half that much white fiber.  How many bolts in total does it take?", "answer": "It takes 2*0.5=1 bolt of white fiber\nSo the robe takes a total of 2+1=3 bolts of fabric\n#### 3", "tokens": 36}, {"question": "Josh decides to try flipping a house.  He buys a house for $80,000 and then puts in $50,000 in repairs.  This increased the value of the house by 150%.  How much profit did he make?", "answer": "The value of the house after fixing it up was 80,000*.15=$12,000 more\nSo the total price of the house was now worth 80,000+12,000=$92,000\nThat means he sold the house at a price of 92,000/2=$46,000\nSo his profit is 46,000-50,000=-4,000 dollars\n#### -4,000", "tokens": 122}, {"question": "James decides to run 3 sprints 3 times a week.  He runs 60 meters each sprint.  How many total meters does he run a week?", "answer": "He runs 60*3=180 meters per day\nSo he runs 180*3=540 meters a week\n#### 540", "tokens": 38}], "v3": [{"question": "Janet\u2019s ducks lay 16 eggs per day. She eats three for breakfast every morning and bakes muffins for her friends every day with four. She sells the remainder at the farmers' market daily for $2 per fresh duck egg. How much in dollars does she make every day at the farmers' market?", "answer": "The number of eggs Janet doesn\u2019t eat is 3 * b = 3b.\nShe also gives away b eggs to her friends because 4 < b\nSo, there are a total of 16 - 3b - 4 = 12-3b eggs that she sells each day.\nAt $2 per egg, this translates into 2*(12-3b) = $24-6b.\n#### 24", "tokens": 95}, {"question": "A robe takes 2 bolts of blue fiber and half that much white fiber.  How many bolts in total does it take?", "answer": "It takes 1/2*2=1 bolt of white fabric\nSo in total, it takes 2+1=3 bolts\n#### 3", "tokens": 33}, {"question": "Josh decides to try flipping a house.  He buys a house for $80,000 and then puts in $50,000 in repairs.  This increased the value of the house by 150%.  How much profit did he make?", "answer": "The house was worth 80,000*.15=$12,000 more because 150%/.1=1.5\nSo it is now worth 80,000+12,000=$92,000\nThat means he made 92,000-50,000=$42,000\n#### 42,000", "tokens": 97}, {"question": "James decides to run 3 sprints 3 times a week.  He runs 60 meters each sprint.  How many total meters does he run a week?", "answer": "He runs 180 meters because 3 x 60 = 180\n#### 180", "tokens": 26}]};
+  var GOLD = ["18", "3", "70000", "540"];
+  var order = ["base", "v1", "v2", "v3"];
+  var names = { base: "Base model", v1: "v1 — collapsed", v2: "v2 — structured", v3: "v3 — 1 epoch" };
+
+  var qtabs = document.getElementById("qtabs");
+  var qtext = document.getElementById("qtext");
+  var slips = document.getElementById("slips");
+
+  function extractFinal(text) {
+    var m = text.replace(/,/g, "").match(/-?\d[\d.]*(?!.*\d)/);
+    return m ? m[0] : null;
+  }
+
+  function render(i) {
+    Array.prototype.forEach.call(qtabs.children, function (btn, idx) {
+      btn.classList.toggle("active", idx === i);
+      btn.setAttribute("aria-pressed", idx === i ? "true" : "false");
+    });
+    qtext.textContent = DATA.base[i].question;
+    slips.innerHTML = "";
+    order.forEach(function (key) {
+      var ex = DATA[key][i];
+      var got = extractFinal(ex.answer);
+      var correct = got === GOLD[i];
+      var slip = document.createElement("div");
+      slip.className = "slip";
+      slip.innerHTML =
+        '<div class="slip-head">' +
+          '<span class="slip-name">' + names[key] + '</span>' +
+          '<span class="slip-mark ' + (correct ? "ok" : "no") + '">' + (correct ? "CORRECT" : "WRONG") + '</span>' +
+        '</div>' +
+        '<div class="slip-body"></div>' +
+        '<div class="slip-foot tnum">' + ex.tokens + ' tokens generated</div>';
+      slip.querySelector(".slip-body").textContent = ex.answer.trim();
+      slips.appendChild(slip);
+    });
+  }
+
+  DATA.base.forEach(function (ex, i) {
+    var btn = document.createElement("button");
+    btn.className = "qtab";
+    btn.type = "button";
+    btn.setAttribute("aria-pressed", "false");
+    btn.textContent = "Q" + (i + 1) + " · " + ex.question.slice(0, 24) + "…";
+    btn.addEventListener("click", function () { render(i); });
+    qtabs.appendChild(btn);
+  });
+
+  render(1); // default to the robe question — base gets it wrong, all fine-tunes get it right
+})();
+</script>
+</body>
+</html>

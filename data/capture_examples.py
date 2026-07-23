@@ -17,6 +17,7 @@ MODELS = {
     "base": None,
     "v1": "runs/lean-v1/adapter",
     "v2": "runs/lean-v2/adapter",
+    "v3": "runs/lean-v3/adapter",
 }
 
 
